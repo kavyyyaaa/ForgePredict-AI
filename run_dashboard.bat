@@ -8,15 +8,17 @@ echo.
 cd /d "%~dp0"
 
 :: Check if virtual environment is valid (handles path changes when copying via pen drive)
-if exist ".venv" (
-    .venv\Scripts\python.exe -c "import sys" >nul 2>&1
-    if errorlevel 1 (
-        echo [WARNING] Existing virtual environment is invalid (likely moved to a new path).
-        echo Re-creating virtual environment for the new path...
-        echo.
-        rmdir /s /q .venv
-    )
-)
+if not exist ".venv" goto :CHECK_VENV_DONE
+
+".venv\Scripts\python.exe" -c "import sys" >nul 2>&1
+if not errorlevel 1 goto :CHECK_VENV_DONE
+
+echo [WARNING] Existing virtual environment is invalid (likely moved to a new path).
+echo Re-creating virtual environment for the new path...
+echo.
+rmdir /s /q .venv
+
+:CHECK_VENV_DONE
 
 :: Check if virtual environment exists; if so, skip setup
 if exist ".venv" goto :ACTIVATE
@@ -27,28 +29,28 @@ echo.
 
 :: Check if uv is in PATH
 where uv >nul 2>&1
-if %errorlevel% equ 0 (
-    set "USE_UV=1"
-    set "RUN_CMD=uv"
-    goto :CREATE_VENV
-)
+if %errorlevel% neq 0 goto :CHECK_LOCAL_UV
+set "USE_UV=1"
+set "RUN_CMD=uv"
+goto :CREATE_VENV
 
+:CHECK_LOCAL_UV
 :: Check if uv is in default local bin
-if exist "%USERPROFILE%\.local\bin\uv.exe" (
-    set "USE_UV=1"
-    set "RUN_CMD=%USERPROFILE%\.local\bin\uv.exe"
-    goto :CREATE_VENV
-)
+if not exist "%USERPROFILE%\.local\bin\uv.exe" goto :INSTALL_UV
+set "USE_UV=1"
+set "RUN_CMD=%USERPROFILE%\.local\bin\uv.exe"
+goto :CREATE_VENV
 
+:INSTALL_UV
 :: Try to install uv
 echo Attempting to install 'uv' package manager for fast environment setup...
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex" >nul 2>&1
-if exist "%USERPROFILE%\.local\bin\uv.exe" (
-    set "USE_UV=1"
-    set "RUN_CMD=%USERPROFILE%\.local\bin\uv.exe"
-    goto :CREATE_VENV
-)
+if not exist "%USERPROFILE%\.local\bin\uv.exe" goto :FALLBACK_VENV
+set "USE_UV=1"
+set "RUN_CMD=%USERPROFILE%\.local\bin\uv.exe"
+goto :CREATE_VENV
 
+:FALLBACK_VENV
 :: Fallback to standard python venv
 echo [NOTICE] 'uv' not found. Falling back to standard python venv...
 set "USE_UV=0"
@@ -56,22 +58,21 @@ set "USE_UV=0"
 :CREATE_VENV
 echo.
 echo Creating virtual environment (.venv)...
-if "%USE_UV%"=="1" (
-    "%RUN_CMD%" venv
-) else (
-    python -m venv .venv
-)
+if "%USE_UV%"=="1" "%RUN_CMD%" venv
+if "%USE_UV%"=="0" python -m venv .venv
 
 echo.
 echo Installing dependencies from requirements.txt...
-if "%USE_UV%"=="1" (
-    "%RUN_CMD%" pip install -r requirements.txt
-) else (
-    call .venv\Scripts\activate.bat
-    python -m pip install --upgrade pip
-    python -m pip install -r requirements.txt
-)
+if "%USE_UV%"=="0" goto :PIP_FALLBACK
+"%RUN_CMD%" pip install -r requirements.txt
+goto :SETUP_DONE
 
+:PIP_FALLBACK
+call .venv\Scripts\activate.bat
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+:SETUP_DONE
 echo.
 echo Environment setup completed!
 echo ==========================================================
